@@ -1,22 +1,19 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2, Minimize2, Maximize2, RefreshCw } from 'lucide-react';
+import { Send, Bot, Loader2 } from 'lucide-react';
 import { ChatMessage } from '../types';
-import { GeminiService } from '../services/geminiService';
-
-const gemini = new GeminiService();
+import { geminiService } from '../services/geminiService';
 
 const DAIAChat: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isMinimized, setIsMinimized] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const initChat = async () => {
       setIsLoading(true);
-      const initial = await gemini.getInitialBriefing();
+      const initial = await geminiService.getInitialBriefing();
       setMessages([{
         role: 'assistant',
         content: initial,
@@ -42,7 +39,7 @@ const DAIAChat: React.FC = () => {
     setIsLoading(true);
 
     const history = messages.map(m => ({ role: m.role, content: m.content }));
-    const response = await gemini.generateDAIAResponse(input, history);
+    const response = await geminiService.generateDAIAResponse(input, history);
     
     setMessages(prev => [...prev, {
       role: 'assistant',
@@ -52,49 +49,32 @@ const DAIAChat: React.FC = () => {
     setIsLoading(false);
   };
 
-  if (isMinimized) {
-    return (
-      <button 
-        onClick={() => setIsMinimized(false)}
-        className="fixed bottom-6 right-6 bg-red-600 text-white p-4 rounded-full shadow-xl shadow-red-900/20 hover:bg-red-500 transition-all flex items-center gap-2 group"
-      >
-        <Bot className="w-6 h-6" />
-        <span className="max-w-0 overflow-hidden group-hover:max-w-xs transition-all duration-300 whitespace-nowrap font-medium">DAIA Briefing</span>
-      </button>
-    );
-  }
-
   return (
-    <div className="fixed bottom-6 right-6 w-96 h-[600px] bg-[#1a1d23] border border-gray-800 rounded-2xl shadow-2xl flex flex-col z-50 overflow-hidden">
+    <div className="flex flex-col h-full bg-white border-l border-slate-200 overflow-hidden">
       {/* Header */}
-      <div className="bg-[#2a2e35] p-4 flex justify-between items-center border-b border-gray-800">
+      <div className="bg-slate-50 p-5 flex justify-between items-center border-b border-slate-200">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-red-600 flex items-center justify-center">
+          <div className="w-9 h-9 rounded-lg bg-red-600 flex items-center justify-center shadow-lg shadow-red-600/20">
             <Bot className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-white leading-tight">DAIA Agent</h3>
-            <span className="text-[10px] text-emerald-500 font-bold uppercase tracking-widest animate-pulse">Live Observability</span>
+            <h3 className="text-sm font-bold text-slate-900 leading-tight">DAIA INTELLIGENCE</h3>
+            <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-widest animate-pulse">Active Briefing</span>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setIsMinimized(true)} className="p-1.5 hover:bg-gray-700 rounded-md transition-colors">
-            <Minimize2 className="w-4 h-4 text-gray-400" />
-          </button>
         </div>
       </div>
 
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 bg-gradient-to-b from-transparent to-[#16181d]">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-5 space-y-6 bg-slate-50/30">
         {messages.map((m, i) => (
           <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[85%] rounded-2xl p-3 text-sm leading-relaxed ${
+            <div className={`max-w-[90%] rounded-2xl p-4 text-sm leading-relaxed ${
               m.role === 'user' 
-              ? 'bg-blue-600 text-white rounded-tr-none' 
-              : 'bg-[#2a2e35] text-gray-200 border border-gray-700 rounded-tl-none prose prose-invert prose-xs'
+              ? 'bg-slate-900 text-white rounded-tr-none shadow-sm' 
+              : 'bg-white text-slate-800 border border-slate-200 rounded-tl-none prose prose-slate prose-xs shadow-sm'
             }`}>
               <div className="whitespace-pre-wrap">{m.content}</div>
-              <div className={`text-[10px] mt-1.5 opacity-40 font-mono ${m.role === 'user' ? 'text-right' : 'text-left'}`}>
+              <div className={`text-[10px] mt-2 opacity-60 font-mono ${m.role === 'user' ? 'text-right' : 'text-left'}`}>
                 {m.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </div>
             </div>
@@ -102,31 +82,31 @@ const DAIAChat: React.FC = () => {
         ))}
         {isLoading && (
           <div className="flex justify-start">
-            <div className="bg-[#2a2e35] border border-gray-700 rounded-2xl rounded-tl-none p-3 flex items-center gap-2">
-              <Loader2 className="w-4 h-4 text-red-500 animate-spin" />
-              <span className="text-xs text-gray-400 font-medium">DAIA is analyzing logs...</span>
+            <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-none p-3 flex items-center gap-3 shadow-sm">
+              <Loader2 className="w-4 h-4 text-red-600 animate-spin" />
+              <span className="text-xs text-slate-500 font-medium">DAIA is analyzing...</span>
             </div>
           </div>
         )}
       </div>
 
       {/* Input */}
-      <div className="p-4 bg-[#1a1d23] border-t border-gray-800">
+      <div className="p-5 bg-white border-t border-slate-200">
         <div className="relative">
           <input 
             type="text" 
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Ask about NA anomaly or root causes..."
-            className="w-full bg-[#0f1115] border border-gray-700 rounded-xl py-3 pl-4 pr-12 text-sm focus:outline-none focus:border-red-600 focus:ring-1 focus:ring-red-600 transition-all placeholder:text-gray-600"
+            placeholder="Ask DAIA about root causes..."
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl py-4 pl-5 pr-14 text-sm text-slate-900 focus:outline-none focus:border-red-600 focus:ring-1 focus:ring-red-600/20 transition-all placeholder:text-slate-400"
           />
           <button 
             onClick={handleSend}
             disabled={isLoading}
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-red-600 text-white rounded-lg hover:bg-red-500 disabled:opacity-50 disabled:hover:bg-red-600 transition-colors"
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:hover:bg-red-600 transition-colors shadow-lg shadow-red-600/10"
           >
-            <Send className="w-4 h-4" />
+            <Send className="w-5 h-5" />
           </button>
         </div>
       </div>
