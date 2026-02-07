@@ -30,7 +30,7 @@ const App: React.FC = () => {
   const [fileInfo, setFileInfo] = useState<{ name: string; rows: number } | null>(null);
   const [parsedRows, setParsedRows] = useState<any[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [mode, setMode] = useState<'BASELINE VIEW' | 'LIVE ANALYSIS'>('BASELINE VIEW');
+  const [mode, setMode] = useState<'BASELINE VIEW' | 'PROCESSING...' | 'LIVE ANALYSIS'>('BASELINE VIEW');
   const [trendData, setTrendData] = useState<TrendDataPoint[]>([]);
   const [executiveReport, setExecutiveReport] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -49,6 +49,7 @@ const App: React.FC = () => {
             rows: results.data.length
           });
           setParsedRows(results.data);
+          console.log(`File loaded: ${file.name}, Rows: ${results.data.length}`);
         },
         error: (error) => {
           console.error("CSV Parsing Error:", error);
@@ -59,15 +60,24 @@ const App: React.FC = () => {
   };
 
   const handleAnalyze = async () => {
-    if (parsedRows.length === 0) return;
+    if (parsedRows.length === 0) {
+      alert("Please upload a CSV file first.");
+      return;
+    }
     
     setIsAnalyzing(true);
+    setMode('PROCESSING...');
     setExecutiveReport(null);
+
     try {
+      console.log("Starting analysis workflow...");
       const result = await geminiService.analyzeTelemetryData(parsedRows);
+      
+      // Update primary state
       setData(result);
       
       // Process trend data for chart
+      console.log("Processing trend visualization data...");
       const uniqueDates = Array.from(new Set(parsedRows.map(r => r.date))).sort();
       const processedTrend: TrendDataPoint[] = uniqueDates.map(date => {
         const dayRows = parsedRows.filter(r => r.date === date);
@@ -87,12 +97,15 @@ const App: React.FC = () => {
       setMode('LIVE ANALYSIS');
 
       // Generate Executive Briefing after analysis
+      console.log("Generating executive briefing...");
       const report = await geminiService.generateExecutiveReport(result);
       setExecutiveReport(report);
+      console.log("Analysis workflow complete.");
 
-    } catch (error) {
+    } catch (error: any) {
       console.error("Analysis Failed:", error);
-      alert("Failed to analyze data. Please try again.");
+      setMode('BASELINE VIEW');
+      alert(error?.message || "Failed to analyze data. Please try again.");
     } finally {
       setIsAnalyzing(false);
     }
@@ -139,7 +152,7 @@ const App: React.FC = () => {
                 <Loader2 className="w-12 h-12 text-red-600 animate-spin" />
                 <div className="text-center">
                   <h3 className="text-lg font-bold text-slate-900 uppercase tracking-tight">AI Engine Processing</h3>
-                  <p className="text-sm text-slate-500">DAIA is generating your executive briefing report...</p>
+                  <p className="text-sm text-slate-500">DAIA is generating your enterprise analysis...</p>
                 </div>
               </div>
             </div>
@@ -180,13 +193,22 @@ const App: React.FC = () => {
                   disabled={!fileInfo || isAnalyzing}
                   className="flex items-center gap-2 px-6 py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white rounded-xl text-[11px] font-bold uppercase tracking-wider transition-all shadow-lg shadow-slate-900/10"
                 >
-                  {isAnalyzing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-current" />}
-                  Analyze Data
+                  {isAnalyzing ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ANALYZING...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      Analyze Data
+                    </>
+                  )}
                 </button>
                 <div className="h-4 w-px bg-slate-200 mx-2"></div>
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Mode:</span>
-                  <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded ${mode === 'LIVE ANALYSIS' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-900'}`}>
+                  <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded ${mode === 'LIVE ANALYSIS' ? 'bg-blue-100 text-blue-700' : mode === 'PROCESSING...' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-900'}`}>
                     {mode}
                   </span>
                 </div>
@@ -343,7 +365,7 @@ const App: React.FC = () => {
 
         {/* AI Side Panel */}
         <aside className="w-[400px] shrink-0 h-full z-20 shadow-xl">
-          <DAIAChat />
+          <DAIAChat currentData={data} />
         </aside>
       </div>
     </div>

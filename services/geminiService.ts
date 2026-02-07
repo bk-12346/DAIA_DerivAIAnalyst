@@ -11,6 +11,15 @@ export class GeminiService {
     this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
   }
 
+  private cleanJsonString(str: string): string {
+    // Remove markdown code fences if present
+    return str
+      .replace(/^```json\s*/i, '')
+      .replace(/^```\s*/, '')
+      .replace(/\s*```$/, '')
+      .trim();
+  }
+
   updateContextFromState(state: DashboardState) {
     const status = (state.zScore < -2 || state.zScore > 2) ? "ANOMALY DETECTED" : "SYSTEM HEALTHY";
     
@@ -46,19 +55,41 @@ BEHAVIOR RULES:
   }
 
   async analyzeTelemetryData(csvData: any[]): Promise<DashboardState> {
-    const prompt = `You are a data analysis engine. You receive CSV data with columns: date, region, platform, instrument_group, daily_active_users, trade_volume. 
-    Analyze it: split into baseline (first 21 days) and recent (last 2 days). 
-    Compute global DAU, regional DAU, percentage changes, z-scores. 
-    Flag anomaly if z-score < -2 OR percentage change < -15%. 
-    Identify worst path (Region -> Platform -> Instrument). 
-    CRITICAL: Only include metrics present in the CSV. If no P&L column, set P&L to 0. If no exposure column, set exposure to 0.0%. 
-    Never invent data. Respond ONLY with a JSON object (no markdown, no backticks, no extra text) matching the DashboardState TypeScript interface shape.
+    console.log(`CSV data ready, rows: ${csvData.length}`);
     
+    const prompt = `You are a data analysis engine. You receive CSV data with columns: date, region, platform, instrument_group, daily_active_users, trade_volume. 
+    Analyze it: split into baseline window (first 21 days) and recent window (last 2 days). 
+    
+    METHODOLOGY:
+    1. Compute global DAU: sum daily_active_users across all segments per day, then average for baseline and recent.
+    2. Compute regional DAU: same but grouped by region (NA, EU, APAC).
+    3. Compute percentage change: (recent_avg - baseline_avg) / baseline_avg * 100.
+    4. Compute z-score: (recent_avg - baseline_avg) / baseline_std_dev.
+    5. Flag anomaly if z-score < -2 OR percentage change < -15% at global or regional level.
+    6. Identify worst path: which Region → Platform → Instrument has the largest negative DAU change.
+    
+    CRITICAL: You MUST respond ONLY with a valid JSON object matching the exact interface below. No markdown fences. No preamble.
+    
+    INTERFACE SCHEMA:
+    {
+      "globalDau": { "value": number, "change": number, "baseline": number, "label": "Active Daily Users (DAU)" },
+      "tradingVolume": { "value": number, "change": number, "baseline": number, "label": "Trading Volume", "unit": "$" },
+      "netPnl": { "value": number, "change": number, "baseline": number, "label": "Net P&L", "unit": "$" },
+      "exposureImbalance": { "value": number, "change": number, "baseline": number, "label": "Exposure Imbalance", "unit": "%" },
+      "regions": [ { "region": "NA"|"EU"|"APAC", "dauChange": number, "status": "healthy"|"anomaly" } ],
+      "platforms": [ { "platform": string, "dauChange": number, "volumeChange": number } ],
+      "instruments": [ { "instrument": string, "dauChange": number, "volumeChange": number } ],
+      "zScore": number,
+      "investigationPath": string[] (e.g., ["NA", "Trader", "Synthetics"])
+    }
+
     DATA:
-    ${JSON.stringify(csvData.slice(0, 500))} // Limit to 500 rows for token efficiency
+    ${JSON.stringify(csvData.slice(0, 400))}
     `;
 
-    const response = await this.ai.models.generateContent({
+    console.log("Sending to Gemini...");
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
+    const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
@@ -66,35 +97,42 @@ BEHAVIOR RULES:
       },
     });
 
-    const result = JSON.parse(response.text || "{}") as DashboardState;
-    this.updateContextFromState(result);
-    return result;
+    const rawResponse = response.text;
+    console.log("Gemini raw response:", rawResponse);
+
+    if (!rawResponse) {
+      throw new Error("Gemini returned an empty response.");
+    }
+
+    const cleanedJson = this.cleanJsonString(rawResponse);
+    
+    try {
+      const result = JSON.parse(cleanedJson) as DashboardState;
+      console.log("Parsed JSON:", result);
+      console.log("Updating state...");
+      this.updateContextFromState(result);
+      return result;
+    } catch (e) {
+      console.error("JSON Parsing Failed. Raw output:", rawResponse);
+      throw new Error("Could not parse analysis results from AI. The model returned an incompatible format.");
+    }
   }
 
   async generateExecutiveReport(state: DashboardState): Promise<string> {
     const prompt = `Generate an executive briefing report based on the following analysis results. 
     Include these sections:
     ### Market Overview
-    (2-3 sentences summarizing global health)
     ### Key Regional & Platform Drivers
-    (Bullet points per region/platform)
     ### Trading & Risk Commentary
-    (Volume, P&L implications, and risk assessment)
     ### Executive Summary / What to Watch Next
-    (Numbered action items with timelines)
     
-    Be specific, reference actual numbers, be concise, and use a professional tone. Use Markdown formatting.
+    Use a professional tone and specific numbers. Path: ${state.investigationPath.join(' → ')}. Z-Score: ${state.zScore}.
     
-    DATA:
-    - Global DAU: ${state.globalDau.value} (${state.globalDau.change}%)
-    - Volume: $${state.tradingVolume.value} (${state.tradingVolume.change}%)
-    - Regional Stats: ${JSON.stringify(state.regions)}
-    - Platform Stats: ${JSON.stringify(state.platforms)}
-    - Z-Score: ${state.zScore}
-    - Path: ${state.investigationPath.join(' -> ')}
+    DATA: ${JSON.stringify(state)}
     `;
 
-    const response = await this.ai.models.generateContent({
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
+    const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
@@ -107,7 +145,8 @@ BEHAVIOR RULES:
 
   async generateDAIAResponse(userMessage: string, history: { role: 'user' | 'assistant', content: string }[]) {
     try {
-      const response = await this.ai.models.generateContent({
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
+      const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: [
           ...history.map(h => ({
@@ -131,7 +170,8 @@ BEHAVIOR RULES:
 
   async getInitialBriefing() {
     try {
-      const response = await this.ai.models.generateContent({
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
+      const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: "Provide the initial snapshot brief based on current context.",
         config: {
@@ -147,5 +187,4 @@ BEHAVIOR RULES:
   }
 }
 
-// Singleton for sharing between App and Chat
 export const geminiService = new GeminiService();

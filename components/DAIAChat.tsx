@@ -1,28 +1,41 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, Loader2 } from 'lucide-react';
-import { ChatMessage } from '../types';
+import ReactMarkdown from 'react-markdown';
+import { ChatMessage, DashboardState } from '../types';
 import { geminiService } from '../services/geminiService';
 
-const DAIAChat: React.FC = () => {
+interface DAIAChatProps {
+  currentData: DashboardState;
+}
+
+const DAIAChat: React.FC<DAIAChatProps> = ({ currentData }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  
+  // Track the unique state to trigger resets
+  const dataKey = JSON.stringify({ 
+    z: currentData.zScore, 
+    val: currentData.globalDau.value,
+    path: currentData.investigationPath 
+  });
+
+  const initChat = async () => {
+    setIsLoading(true);
+    const initial = await geminiService.getInitialBriefing();
+    setMessages([{
+      role: 'assistant',
+      content: initial,
+      timestamp: new Date()
+    }]);
+    setIsLoading(false);
+  };
 
   useEffect(() => {
-    const initChat = async () => {
-      setIsLoading(true);
-      const initial = await geminiService.getInitialBriefing();
-      setMessages([{
-        role: 'assistant',
-        content: initial,
-        timestamp: new Date()
-      }]);
-      setIsLoading(false);
-    };
     initChat();
-  }, []);
+  }, [dataKey]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -59,7 +72,9 @@ const DAIAChat: React.FC = () => {
           </div>
           <div>
             <h3 className="text-sm font-bold text-slate-900 leading-tight">DAIA INTELLIGENCE</h3>
-            <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-widest animate-pulse">Active Briefing</span>
+            <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-widest animate-pulse">
+              Active Briefing
+            </span>
           </div>
         </div>
       </div>
@@ -73,7 +88,9 @@ const DAIAChat: React.FC = () => {
               ? 'bg-slate-900 text-white rounded-tr-none shadow-sm' 
               : 'bg-white text-slate-800 border border-slate-200 rounded-tl-none prose prose-slate prose-xs shadow-sm'
             }`}>
-              <div className="whitespace-pre-wrap">{m.content}</div>
+              <div className="chat-markdown">
+                <ReactMarkdown>{m.content}</ReactMarkdown>
+              </div>
               <div className={`text-[10px] mt-2 opacity-60 font-mono ${m.role === 'user' ? 'text-right' : 'text-left'}`}>
                 {m.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </div>
