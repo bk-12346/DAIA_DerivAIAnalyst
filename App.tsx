@@ -12,12 +12,15 @@ import {
   FileText,
   Play,
   Activity,
-  Loader2
+  Loader2,
+  TrendingUp,
+  ClipboardList
 } from 'lucide-react';
 import Papa from 'papaparse';
+import ReactMarkdown from 'react-markdown';
 import { INITIAL_DASHBOARD_DATA } from './constants';
 import StatCard from './components/StatCard';
-import { RegionChart, InstrumentAnalysis } from './components/Charts';
+import { RegionChart, InstrumentAnalysis, TrendChart, TrendDataPoint } from './components/Charts';
 import DAIAChat from './components/DAIAChat';
 import { geminiService } from './services/geminiService';
 import { DashboardState } from './types';
@@ -28,6 +31,8 @@ const App: React.FC = () => {
   const [parsedRows, setParsedRows] = useState<any[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [mode, setMode] = useState<'BASELINE VIEW' | 'LIVE ANALYSIS'>('BASELINE VIEW');
+  const [trendData, setTrendData] = useState<TrendDataPoint[]>([]);
+  const [executiveReport, setExecutiveReport] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isHealthy = data.zScore > -2.0 && data.zScore < 2.0;
@@ -57,10 +62,34 @@ const App: React.FC = () => {
     if (parsedRows.length === 0) return;
     
     setIsAnalyzing(true);
+    setExecutiveReport(null);
     try {
       const result = await geminiService.analyzeTelemetryData(parsedRows);
       setData(result);
+      
+      // Process trend data for chart
+      const uniqueDates = Array.from(new Set(parsedRows.map(r => r.date))).sort();
+      const processedTrend: TrendDataPoint[] = uniqueDates.map(date => {
+        const dayRows = parsedRows.filter(r => r.date === date);
+        const globalSum = dayRows.reduce((sum, r) => sum + (Number(r.daily_active_users) || 0), 0);
+        const naSum = dayRows
+          .filter(r => r.region === 'NA')
+          .reduce((sum, r) => sum + (Number(r.daily_active_users) || 0), 0);
+        
+        return {
+          date,
+          global: globalSum,
+          na: naSum
+        };
+      });
+      
+      setTrendData(processedTrend);
       setMode('LIVE ANALYSIS');
+
+      // Generate Executive Briefing after analysis
+      const report = await geminiService.generateExecutiveReport(result);
+      setExecutiveReport(report);
+
     } catch (error) {
       console.error("Analysis Failed:", error);
       alert("Failed to analyze data. Please try again.");
@@ -110,13 +139,13 @@ const App: React.FC = () => {
                 <Loader2 className="w-12 h-12 text-red-600 animate-spin" />
                 <div className="text-center">
                   <h3 className="text-lg font-bold text-slate-900 uppercase tracking-tight">AI Engine Processing</h3>
-                  <p className="text-sm text-slate-500">DAIA is analyzing your telemetry data...</p>
+                  <p className="text-sm text-slate-500">DAIA is generating your executive briefing report...</p>
                 </div>
               </div>
             </div>
           )}
 
-          <div className="p-8 max-w-7xl mx-auto">
+          <div className="p-8 max-w-7xl mx-auto pb-24">
             {/* Top Row: File Upload & Actions */}
             <div className="flex items-center justify-between mb-8 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
               <div className="flex items-center gap-3">
@@ -200,7 +229,23 @@ const App: React.FC = () => {
               <StatCard data={data.exposureImbalance} />
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Trend Analysis Section - Only show in Live Analysis mode */}
+            {mode === 'LIVE ANALYSIS' && trendData.length > 0 && (
+              <div className="mb-8 bg-white border border-slate-200 rounded-2xl p-7 shadow-sm">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2 bg-slate-50 border border-slate-100 rounded-lg text-slate-600">
+                    <TrendingUp className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900 tracking-tight">28-Day ADU Trend Analysis</h3>
+                    <p className="text-xs text-slate-500">Historical performance vs current telemetry snapshot</p>
+                  </div>
+                </div>
+                <TrendChart data={trendData} baseline={data.globalDau.baseline} />
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
               {/* Regional Performance */}
               <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl p-7 shadow-sm">
                 <div className="flex justify-between items-center mb-8">
@@ -242,7 +287,7 @@ const App: React.FC = () => {
 
             {/* Investigation Path Visualization - Only show when NOT healthy */}
             {!isHealthy && data.investigationPath.length > 0 && (
-              <div className="mt-8 bg-white border border-slate-200 rounded-2xl p-7 shadow-sm animate-in fade-in slide-in-from-bottom-4 duration-700">
+              <div className="mt-8 bg-white border border-slate-200 rounded-2xl p-7 shadow-sm animate-in fade-in slide-in-from-bottom-4 duration-700 mb-8">
                 <div className="flex items-center gap-4 mb-8">
                   <div className="p-2.5 bg-red-50 text-red-600 rounded-xl border border-red-100">
                     <Search className="w-6 h-6" />
@@ -268,6 +313,28 @@ const App: React.FC = () => {
                       )}
                     </React.Fragment>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* Executive Briefing Report Section */}
+            {mode === 'LIVE ANALYSIS' && executiveReport && (
+              <div className="mt-8 bg-white border-2 border-slate-900/5 rounded-3xl p-8 shadow-2xl animate-in fade-in slide-in-from-bottom-6 duration-1000">
+                <div className="flex items-center gap-4 mb-8 pb-6 border-b border-slate-100">
+                  <div className="w-12 h-12 bg-slate-900 text-white rounded-2xl flex items-center justify-center shadow-xl shadow-slate-900/10">
+                    <ClipboardList className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-black text-slate-900 tracking-tight uppercase">Executive Briefing Report</h3>
+                    <p className="text-xs text-slate-400 font-bold tracking-widest uppercase">Generated by DAIA | {new Date().toLocaleDateString()} | {new Date().toLocaleTimeString()}</p>
+                  </div>
+                </div>
+                <div className="report-content max-w-4xl">
+                  <ReactMarkdown>{executiveReport}</ReactMarkdown>
+                </div>
+                <div className="mt-12 pt-6 border-t border-slate-100 flex justify-between items-center text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                  <span>Authorized Briefing Document</span>
+                  <span>Confidential | Deriv Data Health</span>
                 </div>
               </div>
             )}

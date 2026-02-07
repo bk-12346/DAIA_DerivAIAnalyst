@@ -71,6 +71,40 @@ BEHAVIOR RULES:
     return result;
   }
 
+  async generateExecutiveReport(state: DashboardState): Promise<string> {
+    const prompt = `Generate an executive briefing report based on the following analysis results. 
+    Include these sections:
+    ### Market Overview
+    (2-3 sentences summarizing global health)
+    ### Key Regional & Platform Drivers
+    (Bullet points per region/platform)
+    ### Trading & Risk Commentary
+    (Volume, P&L implications, and risk assessment)
+    ### Executive Summary / What to Watch Next
+    (Numbered action items with timelines)
+    
+    Be specific, reference actual numbers, be concise, and use a professional tone. Use Markdown formatting.
+    
+    DATA:
+    - Global DAU: ${state.globalDau.value} (${state.globalDau.change}%)
+    - Volume: $${state.tradingVolume.value} (${state.tradingVolume.change}%)
+    - Regional Stats: ${JSON.stringify(state.regions)}
+    - Platform Stats: ${JSON.stringify(state.platforms)}
+    - Z-Score: ${state.zScore}
+    - Path: ${state.investigationPath.join(' -> ')}
+    `;
+
+    const response = await this.ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: prompt,
+      config: {
+        temperature: 0.3,
+      },
+    });
+
+    return response.text || "Report generation failed.";
+  }
+
   async generateDAIAResponse(userMessage: string, history: { role: 'user' | 'assistant', content: string }[]) {
     try {
       const response = await this.ai.models.generateContent({
